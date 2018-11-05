@@ -1,0 +1,996 @@
+<dashboard hideFooter="true" hideSplunkBar="true" hideAppBar="true" hideChrome="true" stylesheet="rws_dashboard.css">
+  <!-- plaats volgende parameters in dashboard tag: hideSplunkBar="true" hideAppBar="true" hideChrome="true" -->
+  <label>Q-Dashboard</label>
+  <search id="hostCountSearch">
+    <query>| tstats values(sourcetype) AS sourcetype where index=* by host | eval type=if(sourcetype LIKE "%Win%","Windows", if(sourcetype LIKE "linux%" OR sourcetype LIKE "rsyslog%" OR sourcetype LIKE "nmon_processing","Linux", if(sourcetype LIKE "cisco%" OR sourcetype LIKE "juniper%" OR sourcetype LIKE "%net%","Network", "Other"))) | stats dc(host) AS hostCount by type | addcoltotals labelfield=type label=Total</query>
+    <earliest>@d</earliest>
+    <latest>now</latest>
+    <sampleRatio>1</sampleRatio>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+  </search>
+  <search id="licenseSearch">
+    <query>index=_internal source=/opt/splunk/var/log/splunk/license_usage.log type=Usage | stats sum(b) AS GB max(poolsz) as total by idx | eval GB=round((GB/1024/1024/1024),2) | eval total=round((total/1024/1024/1024),2) | sort - GB</query>
+    <earliest>@d</earliest>
+    <latest>now</latest>
+    <sampleRatio>1</sampleRatio>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+  </search>
+  <search id="splunkResourceSearch">
+    <query>index=_introspection component=* component=Hostwide
+            | lookup dmc_assets host OUTPUT search_group
+            | search search_group=dmc_searchheadclustergroup*
+            | stats avg(data.cpu_user_pct) AS avgCPU avg(data.mem) AS memAvailable avg(data.mem_used) as memUsed by host
+            | eval avgMemory=(memUsed/memAvailable)*100</query>
+    <earliest>-5m</earliest>
+    <latest>now</latest>
+    <sampleRatio>1</sampleRatio>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+  </search>
+  <search id="splunkResourceIndexer">
+    <query>index=_introspection component=*  search_group=dmc_group_indexer component=Hostwide | stats avg(data.cpu_user_pct) AS avgCPU avg(data.mem) AS memAvailable avg(data.mem_used) as memUsed by host | eval avgMemory=(memUsed/memAvailable)*100</query>
+    <earliest>-5m</earliest>
+    <latest>now</latest>
+    <sampleRatio>1</sampleRatio>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+  </search>
+  <search id="splunkdErrorsSearch">
+    <query>index=_internal source="/opt/splunk/var/log/splunk/splunkd.log"  search_group=dmc_group_search_head log_level=ERROR | fields message</query>
+    <earliest>-60m</earliest>
+    <latest>now</latest>
+    <sampleRatio>1</sampleRatio>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+  </search>
+  <search id="splunkdErrorsIndexer">
+    <query>index=_internal source="/opt/splunk/var/log/splunk/splunkd.log"  search_group=dmc_group_indexer log_level=ERROR | fields message</query>
+    <earliest>-60m</earliest>
+    <latest>now</latest>
+    <sampleRatio>1</sampleRatio>
+    <refresh>5m</refresh>
+    <refreshType>delay</refreshType>
+  </search>
+  <row>
+    <panel>
+      <html depends="$alwaysHideCSS$">
+      <style>
+        .splunk-status-indicator{
+          line-height: 50px !important;
+          color: white !important;
+          font-size: 150% !important;
+        }          
+      </style>
+    </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <single>
+        <search>
+          <done>
+            <set token="configCountOneLessSH">$result.configCountOneLess$</set>
+            <set token="configCountSH">$result.configCount$</set>
+          </done>
+          <query>| inputlookup dmc_assets 
+| search search_group=*group_search*  
+| stats count as configCount 
+| appendcols 
+    [ search index=_internal tag=splunk_searchhead 
+    | stats count by host 
+    | stats count as dataCount] 
+| eval configCountOneLess=configCount-1 
+| fields dataCount configCount configCountOneLess</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">all</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0xd93f3c","0x65a637","0xd93f3c"]</option>
+        <option name="rangeValues">[$configCountOneLessSH$,$configCountSH$]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">SearchHeads - $configCountSH$ expected - last hour</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>| inputlookup dmc_assets 
+                  | search search_group=dmc_group_indexer 
+                  | stats count as configCount 
+                  | appendcols
+                      [| rest splunk_server_group=dmc_group_indexer /services/data/indexes 
+                      | stats dc(splunk_server) as dataCount]
+                      | eval configCountOneLess=configCount-1
+                  | fields dataCount configCount configCountOneLess</query>
+          <earliest>-5m</earliest>
+          <latest>now</latest>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+          <done>
+            <set token="configCountOneLessIDX">$result.configCountOneLess$</set>
+            <set token="configCountIDX">$result.configCount$</set>
+          </done>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0xd93f3c","0x65a637","0xd93f3c"]</option>
+        <option name="rangeValues">[$configCountOneLessIDX$,$configCountIDX$]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Indexers - $configCountIDX$ expected - last hour</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>index=_internal tag=splunk_heavy_forwarder
+                | stats count by host
+                | stats count</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorMode">block</option>
+        <option name="drilldown">all</option>
+        <option name="height">50</option>
+        <option name="rangeColors">["0xd93f3c","0x65a637"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="underLabel">Heavy Forwarders - last hour</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>index=_internal tag=splunk_heavy_forwarder log_level=ERROR | stats count</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="rangeColors">["0x65a637","0xd93f3c"]</option>
+        <option name="rangeValues">[1]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="trendInterval">-5m</option>
+        <option name="underLabel">Heavy Forwarder errors - last hour</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>index=_internal tag=splunk_intermediate_forwarder
+                | stats count by host
+                | stats count</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorMode">block</option>
+        <option name="drilldown">all</option>
+        <option name="height">50</option>
+        <option name="rangeColors">["0xd93f3c","0x65a637"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="underLabel">Intermediate Forwarders - last hour</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>index=_internal tag=splunk_intermediate_forwarder log_level=ERROR | stats count</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="rangeColors">["0x65a637","0xd93f3c"]</option>
+        <option name="rangeValues">[1]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="trendInterval">-5m</option>
+        <option name="underLabel">Intermediate Forwarder errors - last hour</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>| rest splunk_server_group=dmc_group_indexer /services/data/indexes search="totalEventCount!=0"  | eval coldPath.maxDataSizeMB=if('coldPath.maxDataSizeMB' = 0, null(), 'coldPath.maxDataSizeMB')  | eval homePath.maxDataSizeMB=if('homePath.maxDataSizeMB' = 0, null(), 'homePath.maxDataSizeMB')  | eval roof=min((coalesce('homePath.maxDataSizeMB', 4400000) + coalesce('coldPath.maxDataSizeMB', 0)), maxTotalDataSizeMB)  | eval PercentFull=round(currentDBSizeMB * 100 / roof)  | eval Retention=frozenTimePeriodInSecs/60/60/24  | stats values(title) as title by splunk_server minTime PercentFull Retention  | rename splunk_server AS Indexer title AS Index  | table Indexer Index minTime Newest_Event PercentFull PercentFull2 Retention  | sort - PercentFull  | eval dataAgeSeconds = now() - strptime(minTime,"%Y-%m-%dT%H:%M:%S%z") | eval dataAgeDays = ceiling(dataAgeSeconds / 86400) | stats max(dataAgeDays) as medianDataAge avg(PercentFull) as PercentFull values(Retention) as Retention by Index | where medianDataAge&lt;Retention AND PercentFull&gt;90  AND Index!="main"  | sort – PercentFull | stats count</query>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">all</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[0,1]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">(almost) full indexes</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <single>
+        <search>
+          <query>index=_internal status=skipped source="/opt/splunk/var/log/splunk/scheduler.log" | stats count</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">all</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[5,100]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Missed schedules - last hour</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">0</option>
+        <drilldown>
+          <link target="_blank">
+            <![CDATA[ /app/search/search?q=search%20index%3D_internal%20status%3Dskipped%20source%3D%22%2Fopt%2Fsplunk%2Fvar%2Flog%2Fsplunk%2Fscheduler.log%22%20%7C%20stats%20count%20by%20savedsearch_name%20%7C%20sort%20-%20count&earliest=-24h%40h&latest=now ]]>
+          </link>
+        </drilldown>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search base="splunkdErrorsSearch">
+          <query>| dedup message |  stats count</query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">all</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[100,500]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">User errors - last hour</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search base="splunkdErrorsIndexer">
+          <query>| dedup message | stats count</query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">all</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[100,500]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">System errors - last hour</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>index=_internal source="/opt/splunk/var/log/splunk/scheduler.log" alert_actions=summary_index status!=success | stats count</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xd93f3c"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Failed summary's - last hour</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+    <panel>
+      <viz type="status_indicator_app.status_indicator">
+        <search>
+          <query>| rest splunk_server_group=dmc_group_cluster_master splunk_server_group="*" "/services/cluster/master/fixup?level=replication_factor" 
+| fields title, index, initial.reason, initial.timestamp, latest.reason 
+| search index="*" 
+| rename title as Bucket, index as Index, initial.reason as "Trigger Condition", initial.timestamp as "Trigger Time", latest.reason as "Current State" 
+| stats count 
+| eval message=if(count&lt;2, "Replication factor", "Not met (tasks: "+count+")") 
+| eval color=if(count&lt;2, "#65a637", "#d93f3c")
+| eval icon=if(count&lt;2, "check", "warning")
+| fields message icon color</query>
+          <earliest>-15m</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="status_indicator_app.status_indicator.colorBy">field_value</option>
+        <option name="status_indicator_app.status_indicator.fillTarget">background</option>
+        <option name="status_indicator_app.status_indicator.fixIcon">warning</option>
+        <option name="status_indicator_app.status_indicator.icon">field_value</option>
+        <option name="status_indicator_app.status_indicator.precision">0</option>
+        <option name="status_indicator_app.status_indicator.showOption">1</option>
+        <option name="status_indicator_app.status_indicator.staticColor">#555</option>
+        <option name="status_indicator_app.status_indicator.useColors">true</option>
+        <option name="status_indicator_app.status_indicator.useThousandSeparator">true</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+      </viz>
+    </panel>
+    <panel>
+      <viz type="status_indicator_app.status_indicator">
+        <search>
+          <query>| rest splunk_server_group=dmc_group_cluster_master splunk_server_group="*" "/services/cluster/master/fixup?level=search_factor" 
+| fields title, index, initial.reason, initial.timestamp, latest.reason 
+| search index="*" 
+| rename title as Bucket, index as Index, initial.reason as "Trigger Condition", initial.timestamp as "Trigger Time", latest.reason as "Current State" 
+| stats count 
+| eval message=if(count&lt;2, "Seach factor", "Not met (tasks: "+count+")") 
+| eval color=if(count&lt;2, "#65a637", "#d93f3c")
+| eval icon=if(count&lt;2, "check", "warning")
+| fields message icon color</query>
+          <earliest>-15m</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="status_indicator_app.status_indicator.colorBy">field_value</option>
+        <option name="status_indicator_app.status_indicator.fillTarget">background</option>
+        <option name="status_indicator_app.status_indicator.fixIcon">warning</option>
+        <option name="status_indicator_app.status_indicator.icon">field_value</option>
+        <option name="status_indicator_app.status_indicator.precision">0</option>
+        <option name="status_indicator_app.status_indicator.showOption">1</option>
+        <option name="status_indicator_app.status_indicator.staticColor">#555</option>
+        <option name="status_indicator_app.status_indicator.useColors">true</option>
+        <option name="status_indicator_app.status_indicator.useThousandSeparator">true</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+      </viz>
+    </panel>
+    <panel>
+      <viz type="status_indicator_app.status_indicator">
+        <search>
+          <query>| rest /services/replication/configuration/health unpublished=1 splunk_server_group=*group_search*
+| rename "Number of unpublished changes" as unpublished_changes 
+| eval unpublished_changes=if(unpublished_changes=="0 (this instance is the captain)", 0, unpublished_changes) 
+| fields splunk_server unpublished_changes 
+| search unpublished_changes&gt;2 
+| eventstats count
+| eval message="Configuration replication of ". count ." searchhead(s) is not oke!" 
+| eval icon="warning" 
+| eval color="#d93f3c" 
+| appendpipe 
+    [ stats count 
+    | eval message="SHC Publish" 
+    | eval icon="check" 
+    | eval color="#65a637" 
+    | where count==0] 
+| fields message icon color</query>
+          <earliest>-15m</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="status_indicator_app.status_indicator.colorBy">field_value</option>
+        <option name="status_indicator_app.status_indicator.fillTarget">background</option>
+        <option name="status_indicator_app.status_indicator.fixIcon">warning</option>
+        <option name="status_indicator_app.status_indicator.icon">field_value</option>
+        <option name="status_indicator_app.status_indicator.precision">0</option>
+        <option name="status_indicator_app.status_indicator.showOption">1</option>
+        <option name="status_indicator_app.status_indicator.staticColor">#555</option>
+        <option name="status_indicator_app.status_indicator.useColors">true</option>
+        <option name="status_indicator_app.status_indicator.useThousandSeparator">true</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+      </viz>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <single>
+        <search>
+          <query>| tstats summariesonly=t count AS event_count dc(source) AS source dc(host) AS hosts WHERE index=* GROUPBY sourcetype index | regex sourcetype="\-\d+$$|too_small" | stats count</query>
+          <earliest>@d</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xd93f3c"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Automatically recognized sourcetypes</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>index=_internal sourcetype=splunkd component=DateParserVerbose log_level=WARN 
+| rex "Context:\s+source::(?&lt;data_source&gt;[^\|]+)\|host::(?&lt;data_host&gt;[^\|]+)\|(?&lt;data_sourcetype&gt;[^\|]+)" 
+| eval opmerking="eStreamer hoeft niet bekeken te worden, dit is een known issue."
+| stats count dc(data_source) dc(data_host) BY data_sourcetype 
+| search count&gt;100
+| sort - count 
+| stats count</query>
+          <earliest>@d</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[0,3]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Timeparsing issues</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>index=_internal sourcetype=splunkd component=LineBreakingProcessor 
+| extract 
+| rex "because\slimit\sof\s(?&lt;limit&gt;\S+).*&gt;=\s(?&lt;actual&gt;\S+)" 
+| stats count avg(actual) max(actual) dc(data_source) dc(data_host) BY data_sourcetype, limit 
+| search count&gt;100
+| eval avg(actual)=round('avg(actual)') 
+| sort - count
+| stats count</query>
+          <earliest>@d</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Linebreaking issues</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>| tstats count WHERE index=* earliest=+30min@m latest=+20y@y GROUPBY sourcetype source host 
+| join type=left sourcetype 
+    [| metadata type=sourcetypes index=* 
+    | convert ctime(*Time)] 
+| stats values(lastTime) AS "Furthest Out Event" by sourcetype
+| stats count</query>
+          <earliest>@d</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[0,2]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Future data</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>(index=_internal  sourcetype=dbx_health STATE=error) OR (index=_internal sourcetype=dbx_job_metrics status=FAILED) | stats count</query>
+          <earliest>@d</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xd93f3c"]</option>
+        <option name="rangeValues">[1]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Failed DBinputs</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <single>
+        <search base="hostCountSearch">
+          <query>search type=Windows | fields hostCount</query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x555","0x555"]</option>
+        <option name="rangeValues">[13]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Windows hosts</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search base="hostCountSearch">
+          <query>search type=Linux | fields hostCount</query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x555","0x555"]</option>
+        <option name="rangeValues">[13]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Linux hosts</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search base="hostCountSearch">
+          <query>search type=Network | fields hostCount</query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x555","0x555"]</option>
+        <option name="rangeValues">[13]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Network hosts</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search base="hostCountSearch">
+          <query>search type=Other | fields hostCount</query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">all</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x555","0x555"]</option>
+        <option name="rangeValues">[13]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Other hosts</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">0</option>
+        <drilldown>
+          <link target="_blank">
+            <![CDATA[
+              /app/RWS/search?q=| tstats values(sourcetype) AS sourcetype WHERE index!%3Donboarding by host | eval type%3Dif(sourcetype LIKE "%25Win%25"%2C"Windows"%2C if(sourcetype LIKE "linux%25" OR sourcetype LIKE "rsyslog%25" OR host LIKE "%25vl-%25"%2C"Linux"%2C if(sourcetype LIKE "cisco%25" OR sourcetype LIKE "juniper%25" OR sourcetype LIKE "%25net%25"%2C"Network"%2C "Other"))) | search type%3D"Other" | stats values(sourcetype) AS sourcetype by host&earliest=-60m%40m&latest=now
+            ]]>
+          </link>
+        </drilldown>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search base="hostCountSearch">
+          <query>search type=Total | fields hostCount</query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x555","0x555"]</option>
+        <option name="rangeValues">[13]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">Total hosts</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <search>
+          <query>index=_internal sourcetype=scheduler component=SavedSplunker log_level=ERROR "The minimum free disk space * reached" | stats dc(host)</query>
+          <earliest>@d</earliest>
+          <latest>now</latest>
+          <sampleRatio>1</sampleRatio>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">50</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x65a637","0xf58f39","0xd93f3c"]</option>
+        <option name="rangeValues">[0,10]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">0</option>
+        <option name="trellis.scales.shared">1</option>
+        <option name="trellis.size">medium</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="underLabel">hosts with low diskspace</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <single>
+        <title>CPU usage searchheads</title>
+        <search base="splunkResourceSearch">
+          <query>| stats avg(avgCPU) as avgCPU by host</query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">78</option>
+        <option name="numberPrecision">0.0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[84,85]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">1</option>
+        <option name="trellis.size">small</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="unit">%</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+      <single>
+        <title>Memory usage searchheads</title>
+        <search base="splunkResourceSearch">
+          <query>| stats avg(avgMemory) as avgMemory by host</query>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">77</option>
+        <option name="numberPrecision">0.0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[80,90]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">1</option>
+        <option name="trellis.size">small</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="unit">%</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <single>
+        <title>CPU usage indexers</title>
+        <search>
+          <query>| rest /services/server/status/resource-usage/hostwide
+| eval cpu_pct_total = cpu_system_pct + cpu_user_pct
+| stats avg(cpu_pct_total) by splunk_server</query>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">145</option>
+        <option name="numberPrecision">0.0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[80,90]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">1</option>
+        <option name="trellis.size">small</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="unit">%</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+      <single>
+        <title>Memory usage indexers</title>
+        <search>
+          <query>| rest /services/server/status/resource-usage/hostwide
+| eval mem_pct = (mem_used/mem)*100
+| stats avg(mem_pct) by splunk_server</query>
+          <refresh>5m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="drilldown">none</option>
+        <option name="height">144</option>
+        <option name="numberPrecision">0.0</option>
+        <option name="rangeColors">["0x65a637","0xf7bc38","0xd93f3c"]</option>
+        <option name="rangeValues">[80,90]</option>
+        <option name="showSparkline">1</option>
+        <option name="showTrendIndicator">1</option>
+        <option name="trellis.enabled">1</option>
+        <option name="trellis.size">small</option>
+        <option name="trendColorInterpretation">standard</option>
+        <option name="trendDisplayMode">absolute</option>
+        <option name="unit">%</option>
+        <option name="unitPosition">after</option>
+        <option name="useColors">1</option>
+        <option name="useThousandSeparators">1</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel id="headerBlue1">
+      <title>License usage</title>
+      <chart>
+        <title>today</title>
+        <search base="licenseSearch">
+          <query>stats sum(GB) AS GB max(total) AS total | eval gauge_base=0 | eval gauge_warning=total*0.86 | eval gauge_danger=total*0.93 | eval gauge_top=total+0.001 | gauge GB gauge_base gauge_warning gauge_danger gauge_top</query>
+        </search>
+        <option name="charting.axisLabelsX.majorLabelStyle.overflowMode">ellipsisNone</option>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">0</option>
+        <option name="charting.axisTitleX.visibility">visible</option>
+        <option name="charting.axisTitleY.visibility">visible</option>
+        <option name="charting.axisTitleY2.visibility">visible</option>
+        <option name="charting.axisX.scale">linear</option>
+        <option name="charting.axisY.scale">linear</option>
+        <option name="charting.axisY2.enabled">0</option>
+        <option name="charting.axisY2.scale">inherit</option>
+        <option name="charting.chart">radialGauge</option>
+        <option name="charting.chart.bubbleMaximumSize">50</option>
+        <option name="charting.chart.bubbleMinimumSize">10</option>
+        <option name="charting.chart.bubbleSizeBy">area</option>
+        <option name="charting.chart.nullValueMode">gaps</option>
+        <option name="charting.chart.showDataLabels">none</option>
+        <option name="charting.chart.sliceCollapsingThreshold">0.01</option>
+        <option name="charting.chart.stackMode">default</option>
+        <option name="charting.chart.style">minimal</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.layout.splitSeries">0</option>
+        <option name="charting.layout.splitSeries.allowIndependentYRanges">0</option>
+        <option name="charting.legend.labelStyle.overflowMode">ellipsisMiddle</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="height">180</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+    <panel id="headerBlue2">
+      <title>License usage by index</title>
+      <chart>
+        <title>today</title>
+        <search base="licenseSearch">
+          <query>fields - total</query>
+        </search>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">-90</option>
+        <option name="charting.axisTitleX.text">Indexes</option>
+        <option name="charting.chart">pie</option>
+        <option name="charting.chart.sliceCollapsingThreshold">0.01</option>
+        <option name="charting.drilldown">all</option>
+        <option name="height">180</option>
+      </chart>
+    </panel>
+    <panel id="headerBlue3">
+      <title>License usage</title>
+      <chart>
+        <title>last month</title>
+        <search>
+          <query>index=_internal source=*license_usage.log* type="RolloverSummary" earliest=-30d@d 
+| eval _time=_time - 43200
+| stats latest(b) AS b latest(stacksz) AS "stackSize" by slave, pool, _time 
+| timechart span=1d sum(b) AS volume latest(stackSize) AS "stack size"
+| foreach * 
+    [ eval &lt;&lt;FIELD&gt;&gt;=round('&lt;&lt;FIELD&gt;&gt;'/1024/1024/1024, 3)]</query>
+          <earliest>-30d@d</earliest>
+          <latest>@d</latest>
+          <sampleRatio>1</sampleRatio>
+          <refresh>1d</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.axisLabelsX.majorLabelStyle.overflowMode">ellipsisNone</option>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">0</option>
+        <option name="charting.axisTitleX.text">Tijd</option>
+        <option name="charting.axisTitleX.visibility">visible</option>
+        <option name="charting.axisTitleY.visibility">visible</option>
+        <option name="charting.axisTitleY2.visibility">visible</option>
+        <option name="charting.axisX.scale">linear</option>
+        <option name="charting.axisY.scale">linear</option>
+        <option name="charting.axisY2.enabled">0</option>
+        <option name="charting.axisY2.scale">inherit</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.bubbleMaximumSize">50</option>
+        <option name="charting.chart.bubbleMinimumSize">10</option>
+        <option name="charting.chart.bubbleSizeBy">area</option>
+        <option name="charting.chart.nullValueMode">gaps</option>
+        <option name="charting.chart.overlayFields">"stack size"</option>
+        <option name="charting.chart.showDataLabels">none</option>
+        <option name="charting.chart.sliceCollapsingThreshold">0.01</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.chart.style">shiny</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.fieldColors">{"stack size": 0xFF0000, "volume": 0x009900}</option>
+        <option name="charting.layout.splitSeries">0</option>
+        <option name="charting.layout.splitSeries.allowIndependentYRanges">0</option>
+        <option name="charting.legend.labelStyle.overflowMode">ellipsisMiddle</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="height">180</option>
+      </chart>
+    </panel>
+  </row>
+</dashboard>

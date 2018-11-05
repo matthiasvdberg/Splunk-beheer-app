@@ -1,0 +1,47 @@
+[nav/default]
+access = read : [ * ], write : [ admin ]
+export = system
+owner = nobody
+version = 7.1.2
+modtime = 1541081403.462430000
+
+[views/crud]
+version = 6.6.2
+modtime = 1502885454.771836900
+
+[views/intake]
+version = 6.6.2
+modtime = 1503410465.402287900
+
+[transforms/business_lookup]
+access = read : [ * ], write : [ admin ]
+export = system
+owner = nobody
+version = 6.6.2
+modtime = 1503390414.317845400
+
+[views/admin_intake]
+access = read : [ admin ], write : [ admin ]
+export = none
+owner = nobody
+version = 7.1.2
+modtime = 1541081929.967175000
+
+[views/new_intake]
+version = 7.0.1
+modtime = 1523040490.032347800
+
+[views/search_intake]
+version = 7.0.1
+modtime = 1523041564.841406700
+
+[views/application]
+version = 7.1.2
+modtime = 1541081949.384257000
+
+[views/configuration_files]
+access = read : [ admin ], write : [ admin ]
+export = none
+owner = admin
+version = 7.1.2
+modtime = 1541081571.263984000
